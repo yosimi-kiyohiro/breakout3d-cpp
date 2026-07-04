@@ -1,0 +1,45 @@
+# ビルド成果物
+*.exe
+*.o
+*.obj
+
+# CMake ビルドフォルダ（本プロジェクトでは未使用）
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+*.cmake
+
+# IDE
+.vscode/
+.idea/
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# emscripten SDK
+emsdk/
+
+# Webビルド成果物（③-Bで使用開始）。shell.htmlは手書きのソースファイルなので除外しない
+web/*
+!web/shell.html
+
+# セーブデータ
+highscore.txt
+
+# 衝突判定テストの実測ログ（実行するたびに再生成される）
+test_results.log
+
+# ビルド・動作確認時のログ（実行するたびに再生成される。梨緒レビュー対応で追記）
+build_native.log
+emrun.log
+emrun_check.log
+
+# ビルド・動作確認時の副産物ログ（修正2：未追跡のまま残っていたものを追加）
+build_test_err.log
+build_test_output.log
+run_native.log
+
+# Claude へのプロジェクト説明書（個人環境向け・任意でコミット対象に含めてもよい）
+# ※ AGENTS.md はコミット対象に含める（tetris-cppと異なりチーム内共有前提）

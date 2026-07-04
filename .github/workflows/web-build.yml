@@ -1,0 +1,147 @@
+name: Web Build & Deploy
+
+# ⑪ CI/CD：2ジョブ構成
+#   test       … raylib（PLATFORM_DESKTOP）をソースからビルドし、衝突判定ヘッドレステスト
+#                （TC1〜TC13）を実行して全PASSを確認する
+#   web-deploy … test成功後のみ実行。raylib（PLATFORM_WEB）をソースからビルドし、
+#                build_web.shでWebビルドしてGitHub Pagesへデプロイする
+#
+# 参考：space-invaders-cpp（SDL3版・.github/workflows/web-build.yml）の2ジョブ構成を踏襲。
+# raylib版はSDL3と異なりraylib本体をソースからビルドする工程が追加で必要なため新規に構築した。
+#
+# build_web.sh は「breakout3d-cpp・tetris-cpp・raylib-src が Projects/ 直下の兄弟ディレクトリ」
+# という前提（AGENTS.md参照）でEMSDK_DIR・RAYLIB_SRC_DIRを相対パス解決している。
+# ローカル環境の前提をCI上でも再現するため、breakout3d-cppを $GITHUB_WORKSPACE/breakout3d-cpp
+# にcheckoutし、その兄弟としてtetris-cpp/emsdk・raylib-srcを用意する（build_web.sh自体は無改造）。
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Native Collision Tests (TC1-TC13)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install raylib build dependencies (Linux/PLATFORM_DESKTOP)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxinerama-dev libwayland-dev libxkbcommon-dev
+
+      - name: Cache raylib (native, PLATFORM_DESKTOP)
+        id: cache-raylib-native
+        uses: actions/cache@v4
+        with:
+          path: raylib-src-native
+          key: raylib-6.0-native-${{ runner.os }}-v1
+
+      - name: Build raylib from source (native, tag 6.0)
+        if: steps.cache-raylib-native.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch 6.0 https://github.com/raysan5/raylib.git raylib-src-native
+          cd raylib-src-native/src
+          make PLATFORM=PLATFORM_DESKTOP -B
+
+      - name: Build test_collision (build_test.sh 相当・Linux向け)
+        run: |
+          g++ src/test_collision.cpp src/Ball.cpp src/Paddle.cpp src/Block.cpp \
+              src/CollisionSystem.cpp src/Stage.cpp \
+              -o test_collision \
+              -I raylib-src-native/src \
+              -L raylib-src-native/src \
+              -std=c++17 -Wall -Wextra \
+              -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
+
+      - name: Run collision tests (TC1-TC13 must all PASS)
+        run: ./test_collision
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test_results
+          path: test_results.log
+          if-no-files-found: ignore
+
+  web-deploy:
+    name: Web Build & Deploy (GitHub Pages)
+    needs: test
+    if: github.event_name == 'push' && needs.test.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout breakout3d-cpp (sibling layout用にサブディレクトリへ)
+        uses: actions/checkout@v4
+        with:
+          path: breakout3d-cpp
+
+      - name: Cache Emscripten SDK (兄弟ディレクトリ - tetris-cpp/emsdk)
+        id: cache-emsdk
+        uses: actions/cache@v4
+        with:
+          path: tetris-cpp/emsdk
+          key: emsdk-latest-${{ runner.os }}-v1
+
+      - name: Install Emscripten SDK (latest)
+        # ⚠️ space-invaders-cpp CIの教訓：emsdkはバージョン固定でビルド失敗した経緯があるため
+        # 本プロジェクトも latest を使用する（c48b8e1 fix: CI の emscripten を latest に変更）
+        run: |
+          if [ ! -x "tetris-cpp/emsdk/emsdk" ]; then
+            mkdir -p tetris-cpp
+            git clone https://github.com/emscripten-core/emsdk.git tetris-cpp/emsdk
+          fi
+          cd tetris-cpp/emsdk
+          ./emsdk install latest
+          ./emsdk activate latest
+
+      - name: Cache raylib (web, PLATFORM_WEB)
+        id: cache-raylib-web
+        uses: actions/cache@v4
+        with:
+          path: raylib-src/src
+          key: raylib-6.0-web-${{ runner.os }}-v1
+
+      - name: Build raylib from source (web, tag 6.0)
+        if: steps.cache-raylib-web.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch 6.0 https://github.com/raysan5/raylib.git raylib-src
+          source tetris-cpp/emsdk/emsdk_env.sh
+          cd raylib-src/src
+          make PLATFORM=PLATFORM_WEB -B
+
+      - name: Build Web (build_web.sh)
+        working-directory: breakout3d-cpp
+        run: |
+          sh build_web.sh
+          if [ $? -ne 0 ]; then
+            echo "Web ビルドに失敗しました。"
+            exit 1
+          fi
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: breakout3d-cpp/web/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
