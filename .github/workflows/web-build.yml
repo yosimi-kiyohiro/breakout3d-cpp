@@ -110,6 +110,45 @@ jobs:
           ./emsdk install latest
           ./emsdk activate latest
 
+      - name: Persist Emscripten environment (PATH / EMSDK系変数) across steps
+        # ⚠️ GitHub Actionsでは各 run: ステップが独立したシェルプロセスのため、
+        #    「Build raylib (web)」ステップ内で `source emsdk_env.sh` しても、
+        #    そのステップ内でしか有効にならず、後続の「Build Web (build_web.sh)」
+        #    ステップには一切引き継がれない（かつ raylib-web キャッシュがヒットした
+        #    場合はそのステップ自体がスキップされ source すらされない）。
+        #    これが CI で `em++: not found` となっていた根本原因。
+        #
+        #    emsdk_env.sh は内部で `emsdk construct_env` の出力を eval しているだけ
+        #    （emsdk.py の construct_env() / get_env_vars_to_add() 参照）。
+        #    ここで emsdk_env.sh を一度 source し、実際に設定された
+        #    PATH（emsdkが新規追加したディレクトリのみ）と
+        #    EMSDK系変数（EMSDK・EMSDK_NODE・EMSDK_PYTHON等）を
+        #    $GITHUB_PATH / $GITHUB_ENV に永続化することで、
+        #    以降の全ステップ（Build Web含む）で em++ を使えるようにする。
+        #
+        #    PATH全体をそのまま $GITHUB_PATH に書き出さないのは、
+        #    他ステップの既存PATH設定まで固定してしまうのを避けるため。
+        run: |
+          OLD_PATH="$PATH"
+          source tetris-cpp/emsdk/emsdk_env.sh
+
+          # PATHに新規追加されたディレクトリのみ $GITHUB_PATH に追記する
+          IFS=':' read -ra ADDED_DIRS <<< "$PATH"
+          for dir in "${ADDED_DIRS[@]}"; do
+            case ":$OLD_PATH:" in
+              *":$dir:"*) ;;
+              *) echo "$dir" >> "$GITHUB_PATH" ;;
+            esac
+          done
+
+          # PATH以外でemsdkが設定するEMSDK系変数（EMSDK・EMSDK_NODE・EMSDK_PYTHON等）を
+          # $GITHUB_ENV に書き出す
+          for key in $(env | grep -oE '^(EMSDK[A-Z_]*|EM_CACHE|EM_CONFIG|SSL_CERT_FILE)=' | sed 's/=$//'); do
+            echo "$key=${!key}" >> "$GITHUB_ENV"
+          done
+
+          echo "emsdk環境変数を永続化しました。EMSDK=$EMSDK"
+
       - name: Cache raylib (web, PLATFORM_WEB)
         id: cache-raylib-web
         uses: actions/cache@v4
