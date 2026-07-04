@@ -4,7 +4,7 @@
 tetris-cpp・space-invaders-cpp に続く3作目で、C++・raylib・3D数学（衝突判定・反射）を
 学ぶことを目的としています。
 
-- 🎮 プレイ版（GitHub Pages）: **公開準備中**（公開後は `https://yosimi-kiyohiro.github.io/breakout3d-cpp/` をここに差し込みます）
+- 🎮 プレイ版（GitHub Pages）: https://yosimi-kiyohiro.github.io/breakout3d-cpp/
 
 ## 技術検証の経緯（3D衝突判定というリスクにどう向き合ったか）
 
